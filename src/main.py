@@ -13,6 +13,7 @@ import json
 from numbers import Number
 import pathlib
 import itertools
+import tempfile
 
 from .args import get_args
 from .logger import logger
@@ -134,6 +135,8 @@ class downloader:
         self.proxy_agent = args['proxy_agent']
         self.force_dss = args['force_dss']
         self.archives_password = args['archives_password']
+        self.cache_creators = args['cache_creators']
+        self.cache_creators_expire = int(args['cache_creators_expire'])
 
         self.session = RefererSession(
             proxy_agent = self.proxy_agent,
@@ -159,9 +162,33 @@ class downloader:
         logger.debug(f"Getting creator json from {creators_api}")
         if self.force_unlisted:
             return []
-        resp = self.session.get(url=creators_api, cookies=self.cookies, headers=self.headers, timeout=self.timeout)
-        # json.loads accepts bytes, I'm not sure if leave it like auto-detect is a good idea or not
-        resp_content_decode = resp.content.decode('utf-8')
+        if self.cache_creators:
+            cache_dir = pathlib.Path(tempfile.gettempdir())
+            cache_ts = int(time.time())
+            cache_prefix = f"kemono-dl_{domain}_creators_".replace('.','-')
+            previous_caches = list(cache_dir.glob(cache_prefix + '*'))
+            previous_cache = None
+            previous_cache_ts = 0
+            for i in previous_caches:
+                i_ts = int(i.name[len(cache_prefix):])
+                if i_ts > previous_cache_ts:
+                    previous_cache_ts = i_ts
+                    previous_cache = i
+            # the creators list changes frequently, so I think doing the length check will result in frequent "expiration" and is oppose to my purpose of caching.
+            # plus, the length in the header is gzip-ed length, it will be another headache to deal with.
+            # creators_len = self.session.head(url=creators_api, cookies=self.cookies, headers=self.headers, timeout=self.timeout).headers.get('Content-Length','')
+            if not previous_cache or cache_ts - previous_cache_ts > self.cache_creators_expire:
+                with open(cache_dir / (cache_prefix + str(cache_ts)), 'w', encoding='utf-8') as cache_writing:
+                    resp = self.session.get(url=creators_api, cookies=self.cookies, headers=self.headers, timeout=self.timeout)
+                    resp_content_decode = resp.content.decode('utf-8')
+                    cache_writing.write(resp_content_decode)
+            else:
+                with open(previous_cache, 'r', encoding='utf-8') as cache_reading:
+                    resp_content_decode = cache_reading.read()
+        else:
+            resp = self.session.get(url=creators_api, cookies=self.cookies, headers=self.headers, timeout=self.timeout)
+            # json.loads accepts bytes as well, I'm not sure if leave it like auto-detect (text encoding) is a good idea or not
+            resp_content_decode = resp.content.decode('utf-8')
         return json.loads(resp_content_decode)
 
     def get_user(self, user_id:str, service:str):
@@ -684,6 +711,23 @@ class downloader:
 
     def download_file(self, file:dict, retry:int, post:dict):
         # download a file
+
+        # try archives password before skipping
+        if self.archives_password and file['file_variables']['ext'] in ('zip','7z','rar'):
+            passwd_filevar = dict(file['file_variables'])
+            passwd_filevar.update({'ext':'pw'})
+            passwd_filepath = compile_file_path(post['post_path'], post['post_variables'], passwd_filevar, self.filename_template, self.restrict_ascii)
+            if not os.path.exists(passwd_filepath):
+                try:
+                    passwd_api = "https://{site}/api{api_ver}/file/{hash}".format(**post['post_variables'],**file['file_variables'],api_ver=self.api_ver)
+                    passwd_resp = self.session.get(url=passwd_api, allow_redirects=True, headers=self.headers, cookies=self.cookies, timeout=self.timeout)
+                    passwd_json = passwd_resp.json()
+                except:
+                    passwd_json = None
+                if passwd_json:
+                    if passwd_json.get('password'):
+                        self.write_to_file(passwd_filepath, passwd_json.get('password'))
+
         if self.skip_file(file,post=post):
             return
 
@@ -694,21 +738,6 @@ class downloader:
         logger.debug(f"Downloading to: {part_file}")
 
         request_headers={'Referer':file['file_variables']['referer']}
-
-        # archives password
-        if self.archives_password and file['file_variables']['ext'] in ('zip','7z','rar'):
-            try:
-                passwd_api = "https://{site}/api{api_ver}/file/{hash}".format(**post['post_variables'],**file['file_variables'],api_ver=self.api_ver)
-                passwd_resp = self.session.get(url=passwd_api, allow_redirects=True, headers=self.headers, cookies=self.cookies, timeout=self.timeout)
-                passwd_json = passwd_resp.json()
-            except:
-                passwd_json = None
-            if passwd_json:
-                if passwd_json.get('password'):
-                    passwd_filevar = dict(file['file_variables'])
-                    passwd_filevar.update({'ext':'pw'})
-                    passwd_filepath = compile_file_path(post['post_path'], post['post_variables'], passwd_filevar, self.filename_template, self.restrict_ascii)
-                    self.write_to_file(passwd_filepath, passwd_json.get('password'))
 
         if self.force_dss:
             dss_letter=isinstance(self.force_dss,str) and self.force_dss[0]
