@@ -60,9 +60,13 @@ def clean_folder_name(folder_name:str):
     if not folder_name.rstrip():
         folder_name = '_'
     name_clean = re.sub(r'[\x00-\x1f\\/:\"*?<>\|]|\.$','_',folder_name.rstrip())[:248]
-    while len(name_clean.encode('utf-8','replace')) > 255: # filename length limit: windows is 255 *characters*, linux is 255 *bytes* unless you are HACKERMAN and hacked the kernel
+    # filename length limit: windows is 255 *characters*,
+    # linux is 255 *bytes* (openzfs 2.3+ support longname :)
+    # for the sake of compatibility trim to the shortest
+    # if you want full name please save json
+    while len(name_clean.encode('utf-8','replace')) > 255:
         name_clean = name_clean[:-1]
-    return name_clean
+    return name_clean.rstrip()
 
 # clean file name for windows & linux
 def clean_file_name(file_name:str):
@@ -72,10 +76,11 @@ def clean_file_name(file_name:str):
     file_name, file_extension = os.path.splitext(file_name)
     name_limit = 255-len(file_extension)-5
     name_clean = file_name[:name_limit] + file_extension
-    while len(name_clean.encode('utf-8','replace')) > 250: # same thing, minus 5 for .part extension added in downloading file
+    # same thing, minus 5 for .part extension added in downloading file
+    while len(name_clean.encode('utf-8','replace')) > 250:
         name_limit -= 1
         name_clean = file_name[:name_limit] + file_extension
-    return name_clean
+    return name_clean.rstrip()
 
 def restrict_ascii(string:str):
     return re.sub(r'[^\x21-\x7f]','_',string)
