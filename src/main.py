@@ -116,7 +116,7 @@ class downloader:
 
         # other
         self.retry = args['retry']
-        self.no_part = args['no_part_files']
+        self.part_files = args['part_files']
         self.ratelimit_sleep = args['ratelimit_sleep']
         self.ratelimit_ms = args['ratelimit_ms']
         self.post_timeout = args['post_timeout']
@@ -731,7 +731,7 @@ class downloader:
         if self.skip_file(file,post=post):
             return
 
-        part_file = f"{file['file_path']}.part" if not self.no_part else file['file_path']
+        part_file = f"{file['file_path']}.part" if self.part_files else file['file_path']
 
         logger.info(f"Downloading: {os.path.split(file['file_path'])[1]}")
         logger.debug(f"Downloading from: {file['file_variables']['url']}")

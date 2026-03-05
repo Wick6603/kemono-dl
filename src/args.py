@@ -197,8 +197,8 @@ def get_args():
                     action=argparse.BooleanOptionalAction, default=False,
                     help="Simulate the given command and do not write to disk.")
 
-    ap.add_argument("--no-part-files",
-                    action=argparse.BooleanOptionalAction, default=False,
+    ap.add_argument("--part-files",
+                    action=argparse.BooleanOptionalAction, default=True,
                     help="Do not save attachments or inline images as .part files while downloading. Files partially downloaded will not be resumed if program stops. ")
 
     ap.add_argument("--yt-dlp-args",
